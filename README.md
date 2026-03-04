@@ -22,10 +22,11 @@ This implementation focuses on your First Phase requirements:
 - SQLAlchemy 2.x
 - SQLite (default; replaceable by PostgreSQL/MySQL)
 - Pytest
+- React 19 + Vite 7 (Admin/CRM frontend)
 
 ---
 
-## Quick Start
+## Quick Start (Backend)
 
 ```bash
 python3 -m pip install -e ".[dev]"
@@ -37,6 +38,28 @@ Health check:
 ```bash
 curl http://localhost:8000/health
 ```
+
+---
+
+## Quick Start (Frontend Dashboard)
+
+```bash
+cd frontend
+cp .env.example .env
+npm install
+npm run dev
+```
+
+Frontend default URL: `http://localhost:5173`  
+API target is controlled by `VITE_API_BASE_URL` (default `http://localhost:8000`).
+
+The React dashboard includes:
+- AI status toggle / pause / schedule
+- Leads list + filters
+- Customer detail + tag management
+- Booking creation + booking list
+- Lead report viewer + AI feedback submit
+- Webhook simulator (WhatsApp/WeChat inbound test)
 
 ---
 
