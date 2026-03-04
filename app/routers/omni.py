@@ -300,7 +300,16 @@ def send_thread_message(
         raw_payload=None,
     )
     thread.last_message_at = datetime.now(ZoneInfo(thread.chatroom.timezone))
-    engine.gateway.send_text(thread.chatroom.channel, thread.contact.external_user_id, payload.content)
+    integration = get_chatroom_integration(db, thread.chatroom_id)
+    engine.gateway.send_text(
+        thread.chatroom.channel,
+        thread.contact.external_user_id,
+        payload.content,
+        provider_config={
+            "phone_number_id": integration.get("phone_number_id") or thread.chatroom.external_room_id,
+            "access_token": integration.get("whatsapp_access_token"),
+        },
+    )
     db.commit()
     db.refresh(message)
     return OmniMessageRead(

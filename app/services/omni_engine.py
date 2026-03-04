@@ -212,7 +212,15 @@ class OmniEngine:
                 content=reply_text,
                 raw_payload=None,
             )
-            self.gateway.send_text(chatroom.channel, incoming.contact_id, reply_text)
+            self.gateway.send_text(
+                chatroom.channel,
+                incoming.contact_id,
+                reply_text,
+                provider_config={
+                    "phone_number_id": integration.get("phone_number_id") or chatroom.external_room_id,
+                    "access_token": integration.get("whatsapp_access_token"),
+                },
+            )
             ai_replied = True
 
         thread.last_message_at = datetime.now(ZoneInfo(chatroom.timezone))
