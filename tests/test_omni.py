@@ -111,3 +111,59 @@ def test_update_chatroom_schedule(client: TestClient) -> None:
     body = update.json()
     assert body["ai_schedule_start"] == "20:00"
     assert body["ai_schedule_end"] == "09:00"
+
+
+def test_chatroom_integration_and_whatsapp_verify(client: TestClient) -> None:
+    room = _chatroom_by_channel(client, "whatsapp")
+
+    update = client.put(
+        f"/omni/chatrooms/{room['id']}/integration",
+        json={
+            "phone_number_id": room["external_room_id"],
+            "webhook_verify_token": "wa-verify-123",
+            "ai_provider": "rule_based",
+        },
+    )
+    assert update.status_code == 200
+    assert update.json()["webhook_verify_token_set"] is True
+
+    verify = client.get(
+        f"/omni/webhooks/whatsapp/{room['external_room_id']}",
+        params={
+            "hub.mode": "subscribe",
+            "hub.challenge": "abc123",
+            "hub.verify_token": "wa-verify-123",
+        },
+    )
+    assert verify.status_code == 200
+    assert verify.text == "abc123"
+
+
+def test_whatsapp_payload_path_uses_phone_number_id(client: TestClient) -> None:
+    room = _chatroom_by_channel(client, "whatsapp")
+    client.put(
+        f"/omni/chatrooms/{room['id']}/integration",
+        json={"phone_number_id": room["external_room_id"], "webhook_verify_token": "wa-token"},
+    )
+
+    inbound = client.post(
+        f"/omni/webhooks/whatsapp/{room['external_room_id']}",
+        json={
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "value": {
+                                "contacts": [{"profile": {"name": "WA Client"}}],
+                                "messages": [{"from": "85260112233", "text": {"body": "hello"}}],
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+    assert inbound.status_code == 200
+    body = inbound.json()
+    assert body["chatroom_id"] == room["id"]
+    assert body["channel"] == "whatsapp"

@@ -66,6 +66,17 @@ Each chatroom tracks:
 - `POST /omni/chatrooms/{chatroom_id}/ai/pause`
 - `PUT /omni/chatrooms/{chatroom_id}/ai/schedule`
 
+### Per-chatroom integration credentials
+
+- `GET /omni/chatrooms/{chatroom_id}/integration`
+- `PUT /omni/chatrooms/{chatroom_id}/integration`
+
+Use this to set:
+- WhatsApp `phone_number_id`
+- webhook verify token
+- WhatsApp access token
+- OpenAI key/model and AI provider mode (`rule_based` / `openai`)
+
 ### Unified inbox
 
 - `GET /omni/chatrooms/{chatroom_id}/threads`
@@ -75,6 +86,8 @@ Each chatroom tracks:
 ### Inbound webhooks / simulation
 
 - `POST /omni/webhooks/{channel}`
+- `GET /omni/webhooks/whatsapp/{phone_number_id}` (Meta verify)
+- `POST /omni/webhooks/whatsapp/{phone_number_id}` (WhatsApp inbound for that phone)
 - `POST /omni/simulate`
 
 Simulation payload:

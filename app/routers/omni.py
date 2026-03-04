@@ -2,11 +2,14 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import OmniChatroom, OmniMessage, OmniThread
 from app.schemas_omni import (
+    OmniIntegrationRead,
+    OmniIntegrationUpdate,
     OmniChatroomAIStatusRead,
     OmniChatroomAIScheduleUpdate,
     OmniChatroomAIStatusUpdate,
@@ -19,6 +22,7 @@ from app.schemas_omni import (
     OmniThreadRead,
 )
 from app.services.omni_engine import OmniEngine, VALID_CHANNELS
+from app.services.omni_integration import get_chatroom_integration, set_chatroom_integration
 
 router = APIRouter(prefix="/omni", tags=["omnichannel"])
 
@@ -35,6 +39,18 @@ def _thread_or_404(db: Session, thread_id: int) -> OmniThread:
     if row is None:
         raise HTTPException(status_code=404, detail="Thread not found.")
     return row
+
+
+def _integration_read(chatroom: OmniChatroom, payload: dict) -> OmniIntegrationRead:
+    return OmniIntegrationRead(
+        chatroom_id=chatroom.id,
+        phone_number_id=payload.get("phone_number_id") or chatroom.external_room_id,
+        webhook_verify_token_set=bool(payload.get("webhook_verify_token")),
+        whatsapp_access_token_set=bool(payload.get("whatsapp_access_token")),
+        openai_api_key_set=bool(payload.get("openai_api_key")),
+        openai_model=str(payload.get("openai_model") or "gpt-4o-mini"),
+        ai_provider=str(payload.get("ai_provider") or "rule_based"),
+    )
 
 
 @router.get("/chatrooms", response_model=list[OmniChatroomRead])
@@ -169,6 +185,42 @@ def update_chatroom_ai_schedule(
     )
 
 
+@router.get("/chatrooms/{chatroom_id}/integration", response_model=OmniIntegrationRead)
+def get_chatroom_integration_api(chatroom_id: int, db: Session = Depends(get_db)) -> OmniIntegrationRead:
+    chatroom = _chatroom_or_404(db, chatroom_id)
+    payload = get_chatroom_integration(db, chatroom_id)
+    return _integration_read(chatroom, payload)
+
+
+@router.put("/chatrooms/{chatroom_id}/integration", response_model=OmniIntegrationRead)
+def update_chatroom_integration_api(
+    chatroom_id: int,
+    update: OmniIntegrationUpdate,
+    db: Session = Depends(get_db),
+) -> OmniIntegrationRead:
+    chatroom = _chatroom_or_404(db, chatroom_id)
+    current = get_chatroom_integration(db, chatroom_id)
+    merged = dict(current)
+
+    values = update.model_dump(exclude_unset=True)
+    for key, value in values.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and value == "":
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+
+    phone_number_id = merged.get("phone_number_id")
+    if phone_number_id and chatroom.channel == "whatsapp":
+        chatroom.external_room_id = str(phone_number_id)
+
+    set_chatroom_integration(db, chatroom_id, merged)
+    db.commit()
+    db.refresh(chatroom)
+    return _integration_read(chatroom, merged)
+
+
 @router.get("/chatrooms/{chatroom_id}/threads", response_model=list[OmniThreadRead])
 def list_chatroom_threads(
     chatroom_id: int,
@@ -290,6 +342,88 @@ def _incoming_from_payload(channel: str, payload: dict) -> OmniIncomingMessage:
         text=str(text),
         metadata={"raw": payload},
     )
+
+
+def _incoming_from_whatsapp_payload(phone_number_id: str, payload: dict) -> OmniIncomingMessage:
+    text = payload.get("text") or payload.get("message")
+    contact_id = payload.get("contact_id") or payload.get("from") or payload.get("phone")
+    if text and contact_id:
+        return OmniIncomingMessage(
+            channel="whatsapp",
+            chatroom_external_id=phone_number_id,
+            contact_id=str(contact_id),
+            contact_name=payload.get("contact_name") or payload.get("name"),
+            text=str(text),
+            metadata={"raw": payload},
+        )
+
+    try:
+        value = payload["entry"][0]["changes"][0]["value"]
+        message = value["messages"][0]
+        contacts = value.get("contacts") or []
+    except (KeyError, IndexError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid WhatsApp payload: {exc}") from exc
+
+    contact_id = str(message.get("from", "")).strip()
+    text = (
+        message.get("text", {}).get("body")
+        or message.get("button", {}).get("text")
+        or message.get("interactive", {}).get("button_reply", {}).get("title")
+    )
+    if not contact_id or not text:
+        raise HTTPException(status_code=400, detail="Unsupported WhatsApp message format.")
+
+    contact_name = None
+    if contacts:
+        contact_name = contacts[0].get("profile", {}).get("name")
+
+    return OmniIncomingMessage(
+        channel="whatsapp",
+        chatroom_external_id=phone_number_id,
+        contact_id=contact_id,
+        contact_name=contact_name,
+        text=str(text),
+        metadata={"raw": payload},
+    )
+
+
+@router.get("/webhooks/whatsapp/{phone_number_id}")
+def verify_whatsapp_for_chatroom(
+    phone_number_id: str,
+    mode: str = Query(default="", alias="hub.mode"),
+    challenge: str = Query(default="", alias="hub.challenge"),
+    verify_token: str = Query(default="", alias="hub.verify_token"),
+    db: Session = Depends(get_db),
+) -> PlainTextResponse:
+    chatroom = (
+        db.query(OmniChatroom)
+        .filter(
+            OmniChatroom.channel == "whatsapp",
+            OmniChatroom.external_room_id == phone_number_id,
+        )
+        .one_or_none()
+    )
+    if chatroom is None:
+        raise HTTPException(status_code=404, detail="WhatsApp chatroom not found for this phone_number_id.")
+
+    integration = get_chatroom_integration(db, chatroom.id)
+    expected_token = str(integration.get("webhook_verify_token") or "")
+    if not expected_token:
+        raise HTTPException(status_code=400, detail="Webhook verify token not configured for this chatroom.")
+
+    if mode == "subscribe" and verify_token == expected_token:
+        return PlainTextResponse(content=challenge)
+    raise HTTPException(status_code=403, detail="Verification failed.")
+
+
+@router.post("/webhooks/whatsapp/{phone_number_id}", response_model=OmniInboundResult)
+def omni_whatsapp_webhook(
+    phone_number_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+) -> OmniInboundResult:
+    incoming = _incoming_from_whatsapp_payload(phone_number_id, payload)
+    return OmniEngine(db).process_incoming(incoming)
 
 
 @router.post("/webhooks/{channel}", response_model=OmniInboundResult)

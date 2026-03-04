@@ -60,6 +60,12 @@ export const api = {
         timezone,
       },
     }),
+  getChatroomIntegration: (chatroomId) => request(`/omni/chatrooms/${chatroomId}/integration`),
+  updateChatroomIntegration: (chatroomId, payload) =>
+    request(`/omni/chatrooms/${chatroomId}/integration`, {
+      method: "PUT",
+      body: payload,
+    }),
   listThreads: (chatroomId, query) => request(`/omni/chatrooms/${chatroomId}/threads`, { query }),
   listMessages: (threadId, query) => request(`/omni/threads/${threadId}/messages`, { query }),
   sendMessage: (threadId, payload) => request(`/omni/threads/${threadId}/messages`, { method: "POST", body: payload }),

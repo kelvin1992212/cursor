@@ -276,6 +276,23 @@ td {
   gap: 0.35rem;
 }
 
+.nested-panel {
+  margin-top: 0.9rem;
+  background: #f8fafc;
+}
+
+.integration-flags {
+  margin: 0.6rem 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+code {
+  padding: 0.08rem 0.3rem;
+  border-radius: 6px;
+  background: #e2e8f0;
+}
+
 @media (min-width: 920px) {
   .app-shell {
     grid-template-columns: 250px 1fr;

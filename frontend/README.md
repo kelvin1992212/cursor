@@ -27,7 +27,7 @@ npm run build
 
 - `/chatrooms` – chatroom list, filter, creation
 - `/inbox/:chatroomId` – thread list + messages + manual outbound send
-- `/ai-settings` – per-chatroom AI toggle / pause / schedule
+- `/ai-settings` – per-chatroom AI toggle / pause / schedule + integration keys/tokens
 - `/simulator` – inbound simulator for WhatsApp / WeChat / Facebook / Instagram
 
 The app uses **React Router** and a persistent sidebar navigation.

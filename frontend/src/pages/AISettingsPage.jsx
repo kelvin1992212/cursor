@@ -10,6 +10,15 @@ const initialSchedule = {
   timezone: "Asia/Hong_Kong",
 };
 
+const initialIntegration = {
+  phone_number_id: "",
+  webhook_verify_token: "",
+  whatsapp_access_token: "",
+  openai_api_key: "",
+  openai_model: "gpt-4o-mini",
+  ai_provider: "rule_based",
+};
+
 export default function AISettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryChatroomId = Number(searchParams.get("chatroomId")) || null;
@@ -20,6 +29,8 @@ export default function AISettingsPage() {
   const [chatrooms, setChatrooms] = useState([]);
   const [selectedChatroomId, setSelectedChatroomId] = useState(queryChatroomId);
   const [schedule, setSchedule] = useState(initialSchedule);
+  const [integration, setIntegration] = useState(null);
+  const [integrationForm, setIntegrationForm] = useState(initialIntegration);
 
   const selectedChatroom = useMemo(
     () => chatrooms.find((room) => room.id === selectedChatroomId) || null,
@@ -61,6 +72,24 @@ export default function AISettingsPage() {
       timezone: selectedChatroom.timezone,
     });
     setSearchParams({ chatroomId: String(selectedChatroom.id) }, { replace: true });
+
+    async function fetchIntegration() {
+      try {
+        const data = await api.getChatroomIntegration(selectedChatroom.id);
+        setIntegration(data);
+        setIntegrationForm({
+          phone_number_id: data.phone_number_id || selectedChatroom.external_room_id || "",
+          webhook_verify_token: "",
+          whatsapp_access_token: "",
+          openai_api_key: "",
+          openai_model: data.openai_model || "gpt-4o-mini",
+          ai_provider: data.ai_provider || "rule_based",
+        });
+      } catch (fetchError) {
+        setError(fetchError.message);
+      }
+    }
+    fetchIntegration();
   }, [selectedChatroom, setSearchParams]);
 
   async function refreshCurrent() {
@@ -107,6 +136,31 @@ export default function AISettingsPage() {
       );
       await fetchChatrooms();
       setNotice("Schedule updated.");
+    } catch (fetchError) {
+      setError(fetchError.message);
+    }
+  }
+
+  async function handleIntegrationUpdate(event) {
+    event.preventDefault();
+    if (!selectedChatroom) return;
+    setError("");
+    setNotice("");
+    try {
+      await api.updateChatroomIntegration(selectedChatroom.id, integrationForm);
+      const [rows, nextIntegration] = await Promise.all([
+        api.listChatrooms(),
+        api.getChatroomIntegration(selectedChatroom.id),
+      ]);
+      setChatrooms(rows);
+      setIntegration(nextIntegration);
+      setIntegrationForm((previous) => ({
+        ...previous,
+        webhook_verify_token: "",
+        whatsapp_access_token: "",
+        openai_api_key: "",
+      }));
+      setNotice("Integration settings updated.");
     } catch (fetchError) {
       setError(fetchError.message);
     }
@@ -198,6 +252,102 @@ export default function AISettingsPage() {
               </label>
               <button type="submit">Update schedule</button>
             </form>
+            <section className="panel nested-panel">
+              <h3>Integration Settings</h3>
+              <p className="muted">
+                Configure webhook token, WhatsApp phone ID/access token, and OpenAI key/model for this chatroom.
+              </p>
+              {integration && (
+                <div className="integration-flags">
+                  <p>
+                    <strong>Webhook token:</strong> {integration.webhook_verify_token_set ? "configured" : "not set"}
+                  </p>
+                  <p>
+                    <strong>WhatsApp access token:</strong>{" "}
+                    {integration.whatsapp_access_token_set ? "configured" : "not set"}
+                  </p>
+                  <p>
+                    <strong>OpenAI key:</strong> {integration.openai_api_key_set ? "configured" : "not set"}
+                  </p>
+                  <p>
+                    <strong>AI provider:</strong> {integration.ai_provider}
+                  </p>
+                </div>
+              )}
+              <form onSubmit={handleIntegrationUpdate} className="form-grid">
+                <label>
+                  WhatsApp Phone Number ID
+                  <input
+                    value={integrationForm.phone_number_id}
+                    onChange={(event) =>
+                      setIntegrationForm((previous) => ({ ...previous, phone_number_id: event.target.value }))
+                    }
+                    placeholder="123456789012345"
+                  />
+                </label>
+                <label>
+                  Webhook Verify Token
+                  <input
+                    value={integrationForm.webhook_verify_token}
+                    onChange={(event) =>
+                      setIntegrationForm((previous) => ({ ...previous, webhook_verify_token: event.target.value }))
+                    }
+                    placeholder="set to configure webhook verify"
+                  />
+                </label>
+                <label>
+                  WhatsApp Access Token
+                  <input
+                    value={integrationForm.whatsapp_access_token}
+                    onChange={(event) =>
+                      setIntegrationForm((previous) => ({ ...previous, whatsapp_access_token: event.target.value }))
+                    }
+                    placeholder="set token used for outbound calls"
+                  />
+                </label>
+                <label>
+                  AI Provider
+                  <select
+                    value={integrationForm.ai_provider}
+                    onChange={(event) =>
+                      setIntegrationForm((previous) => ({ ...previous, ai_provider: event.target.value }))
+                    }
+                  >
+                    <option value="rule_based">rule_based</option>
+                    <option value="openai">openai</option>
+                  </select>
+                </label>
+                <label>
+                  OpenAI API Key
+                  <input
+                    value={integrationForm.openai_api_key}
+                    onChange={(event) =>
+                      setIntegrationForm((previous) => ({ ...previous, openai_api_key: event.target.value }))
+                    }
+                    placeholder="required when AI provider=openai"
+                  />
+                </label>
+                <label>
+                  OpenAI Model
+                  <input
+                    value={integrationForm.openai_model}
+                    onChange={(event) =>
+                      setIntegrationForm((previous) => ({ ...previous, openai_model: event.target.value }))
+                    }
+                    placeholder="gpt-4o-mini"
+                  />
+                </label>
+                <button type="submit">Update integration</button>
+              </form>
+              {selectedChatroom.channel === "whatsapp" && (
+                <p className="muted">
+                  Verify URL:
+                  <code>
+                    {` /omni/webhooks/whatsapp/${integrationForm.phone_number_id || selectedChatroom.external_room_id}`}
+                  </code>
+                </p>
+              )}
+            </section>
           </>
         )}
       </section>

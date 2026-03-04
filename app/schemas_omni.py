@@ -90,3 +90,22 @@ class OmniInboundResult(BaseModel):
     contact_id: str
     ai_replied: bool
     reply_text: str | None = None
+
+
+class OmniIntegrationRead(BaseModel):
+    chatroom_id: int
+    phone_number_id: str | None = None
+    webhook_verify_token_set: bool
+    whatsapp_access_token_set: bool
+    openai_api_key_set: bool
+    openai_model: str = "gpt-4o-mini"
+    ai_provider: str = "rule_based"
+
+
+class OmniIntegrationUpdate(BaseModel):
+    phone_number_id: str | None = None
+    webhook_verify_token: str | None = None
+    whatsapp_access_token: str | None = None
+    openai_api_key: str | None = None
+    openai_model: str | None = None
+    ai_provider: str | None = Field(default=None, pattern=r"^(rule_based|openai)$")
