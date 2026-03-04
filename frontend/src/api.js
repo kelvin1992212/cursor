@@ -42,34 +42,26 @@ async function request(path, options = {}) {
 export const apiBaseUrl = API_BASE_URL;
 
 export const api = {
-  getAIStatus: () => request("/admin/ai/status"),
-  updateAIStatus: (enabled) => request("/admin/ai/status", { method: "PUT", body: { enabled } }),
-  pauseAI: () => request("/admin/ai/pause", { method: "POST" }),
-  updateAISchedule: (scheduleStart, scheduleEnd, timezone) =>
-    request("/admin/ai/schedule", {
+  listChatrooms: (query) => request("/omni/chatrooms", { query }),
+  createChatroom: (payload) => request("/omni/chatrooms", { method: "POST", body: payload }),
+  getChatroomAI: (chatroomId) => request(`/omni/chatrooms/${chatroomId}/ai`),
+  updateChatroomAIStatus: (chatroomId, enabled) =>
+    request(`/omni/chatrooms/${chatroomId}/ai/status`, {
+      method: "PUT",
+      body: { enabled },
+    }),
+  pauseChatroomAI: (chatroomId) => request(`/omni/chatrooms/${chatroomId}/ai/pause`, { method: "POST" }),
+  updateChatroomSchedule: (chatroomId, scheduleStart, scheduleEnd, timezone) =>
+    request(`/omni/chatrooms/${chatroomId}/ai/schedule`, {
       method: "PUT",
       body: {
-        schedule_start: scheduleStart,
-        schedule_end: scheduleEnd,
+        ai_schedule_start: scheduleStart,
+        ai_schedule_end: scheduleEnd,
         timezone,
       },
     }),
-  listAgents: () => request("/admin/agents"),
-  createAgent: (payload) => request("/admin/agents", { method: "POST", body: payload }),
-  listLeads: (query) => request("/crm/leads", { query }),
-  getCustomer: (phone) => request(`/crm/customers/${encodeURIComponent(phone)}`),
-  addCustomerTags: (phone, tags) =>
-    request(`/crm/customers/${encodeURIComponent(phone)}/tags`, {
-      method: "POST",
-      body: { tags },
-    }),
-  removeCustomerTag: (phone, tagName) =>
-    request(`/crm/customers/${encodeURIComponent(phone)}/tags/${encodeURIComponent(tagName)}`, {
-      method: "DELETE",
-    }),
-  listBookings: () => request("/crm/bookings"),
-  createBooking: (payload) => request("/crm/bookings", { method: "POST", body: payload }),
-  listReports: (phone) => request(`/admin/reports/${encodeURIComponent(phone)}`),
-  createFeedback: (payload) => request("/crm/feedback", { method: "POST", body: payload }),
-  simulateIncoming: (payload) => request("/webhooks/simulate", { method: "POST", body: payload }),
+  listThreads: (chatroomId, query) => request(`/omni/chatrooms/${chatroomId}/threads`, { query }),
+  listMessages: (threadId, query) => request(`/omni/threads/${threadId}/messages`, { query }),
+  sendMessage: (threadId, payload) => request(`/omni/threads/${threadId}/messages`, { method: "POST", body: payload }),
+  simulateIncoming: (payload) => request("/omni/simulate", { method: "POST", body: payload }),
 };

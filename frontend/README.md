@@ -1,6 +1,6 @@
-# House 88 Dashboard Frontend
+# House 88 Omnichannel Frontend
 
-React + Vite frontend for the House 88 WhatsApp AI Lead Engine backend.
+React + Vite frontend for the House 88 omnichannel chatroom backend.
 
 ## Run locally
 
@@ -25,10 +25,9 @@ npm run build
 
 ## Main screens
 
-- AI Control Center (enable/disable, one-click pause, schedule)
-- Webhook Simulator (send WhatsApp/WeChat test messages)
-- Leads list + filters
-- Customer detail + tags
-- Booking management
-- Lead reports + AI feedback
-- Agent management
+- Chatroom list (WhatsApp / WeChat / Facebook / Instagram)
+- Thread list per chatroom
+- Message timeline + manual outbound send
+- Per-chatroom AI control (toggle / pause / schedule)
+- Inbound simulator
+- Chatroom creation

@@ -1,47 +1,38 @@
-# House 88 – WhatsApp AI System (First Phase MVP, Python)
+# House 88 – Omnichannel Chatroom (WhatsApp / WeChat / Facebook / IG)
 
-Python backend MVP for **House 88 WhatsApp AI Lead Engine** using **FastAPI + SQLite + SQLAlchemy**.
+This project is now centered on an **Omnichat-style unified inbox**:
 
-This implementation focuses on your First Phase requirements:
+- One backend for **WhatsApp, WeChat, Facebook, Instagram**
+- **Chatroom-based architecture** (each channel/account/page = a chatroom)
+- Unified inbox flow: **chatroom → thread → messages**
+- **Per-chatroom AI controls**:
+  - AI auto-reply
+  - working schedule
+  - one-click AI pause
 
-1. WhatsApp/Webhook integration + multi-agent shared inbox model  
-2. AI auto-reply with schedule + one-click pause  
-3. AI → human handover on high-intent triggers  
-4. Auto/manual lead tagging  
-5. Booking flow and calendar slot suggestions  
-6. Basic CRM (customers, chats, tags, filters)  
-7. AI feedback/data collection foundation for ongoing optimization  
-8. Auto lead report generation after handover
+> Existing lead/CRM endpoints remain in repo as legacy MVP modules, but the new core is `/omni/*`.
 
 ---
 
 ## Tech Stack
 
 - Python 3.11+
-- FastAPI
-- SQLAlchemy 2.x
-- SQLite (default; replaceable by PostgreSQL/MySQL)
+- FastAPI + SQLAlchemy + SQLite (default)
+- React 19 + Vite 7 frontend dashboard
 - Pytest
-- React 19 + Vite 7 (Admin/CRM frontend)
 
 ---
 
-## Quick Start (Backend)
+## Quick Start
+
+### Backend
 
 ```bash
 python3 -m pip install -e ".[dev]"
 python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Health check:
-
-```bash
-curl http://localhost:8000/health
-```
-
----
-
-## Quick Start (Frontend Dashboard)
+### Frontend
 
 ```bash
 cd frontend
@@ -50,106 +41,66 @@ npm install
 npm run dev
 ```
 
-Frontend default URL: `http://localhost:5173`  
-API target is controlled by `VITE_API_BASE_URL` (default `http://localhost:8000`).
-
-The React dashboard includes:
-- AI status toggle / pause / schedule
-- Leads list + filters
-- Customer detail + tag management
-- Booking creation + booking list
-- Lead report viewer + AI feedback submit
-- Webhook simulator (WhatsApp/WeChat inbound test)
+Frontend default: `http://localhost:5173`  
+Backend default: `http://localhost:8000`
 
 ---
 
-## Core API Endpoints
+## Omnichannel API (`/omni/*`)
 
-### 1) Webhooks / Inbound Messages
+### Chatrooms
 
-- `GET /webhooks/whatsapp`  
-  WhatsApp Cloud API verification (`hub.mode`, `hub.challenge`, `hub.verify_token`)
+- `GET /omni/chatrooms?channel=...`
+- `POST /omni/chatrooms`
 
-- `POST /webhooks/whatsapp`  
-  Receive WhatsApp inbound payload (supports simple payload and Cloud API style payload)
+Each chatroom tracks:
+- `channel` (`whatsapp|wechat|facebook|instagram`)
+- `external_room_id` (e.g. phone_number_id / page_id / account_id)
+- `ai_enabled`
+- `ai_schedule_start`, `ai_schedule_end`, `timezone`
 
-- `POST /webhooks/wechat`  
-  Receive WeChat inbound payload (simple payload)
+### Per-chatroom AI control
 
-- `POST /webhooks/simulate`  
-  Development/testing endpoint with normalized message schema:
+- `GET /omni/chatrooms/{chatroom_id}/ai`
+- `PUT /omni/chatrooms/{chatroom_id}/ai/status`
+- `POST /omni/chatrooms/{chatroom_id}/ai/pause`
+- `PUT /omni/chatrooms/{chatroom_id}/ai/schedule`
+
+### Unified inbox
+
+- `GET /omni/chatrooms/{chatroom_id}/threads`
+- `GET /omni/threads/{thread_id}/messages`
+- `POST /omni/threads/{thread_id}/messages` (agent/system outbound)
+
+### Inbound webhooks / simulation
+
+- `POST /omni/webhooks/{channel}`
+- `POST /omni/simulate`
+
+Simulation payload:
 
 ```json
 {
   "channel": "whatsapp",
-  "phone": "+85261111111",
-  "name": "Chris",
-  "text": "想知按揭資訊"
+  "chatroom_external_id": "house88-whatsapp",
+  "contact_id": "wa-user-001",
+  "contact_name": "Alex",
+  "text": "想問價錢"
 }
 ```
 
-### 2) Admin Dashboard APIs
-
-- `GET /admin/ai/status`  
-- `PUT /admin/ai/status` (enable/disable AI)  
-- `POST /admin/ai/pause` (one-click pause AI)  
-- `PUT /admin/ai/schedule` (e.g. 20:00–09:00 auto-reply window)  
-- `POST /admin/agents`  
-- `GET /admin/agents`  
-- `POST /admin/properties/sync` (sync website listing data into internal KB)  
-- `GET /admin/reports/{phone}` (lead reports)
-
-### 3) CRM APIs
-
-- `GET /crm/leads?tag=&property_code=&intent_stage=&from_date=&to_date=`  
-- `GET /crm/customers/{phone}`  
-- `POST /crm/customers/{phone}/tags`  
-- `DELETE /crm/customers/{phone}/tags/{tag_name}`  
-- `POST /crm/bookings`  
-- `GET /crm/bookings`  
-- `POST /crm/feedback` (AI response feedback: `correct` / `improve`)
-
 ---
 
-## Mapping to First Phase Requirements
+## Frontend Dashboard
 
-### 1️⃣ WhatsApp 系統整合
-- Webhook verification + inbound processing ready
-- Channel gateway abstraction supports WhatsApp/WeChat
-- Multi-agent sharing handled via common lead pool + round-robin assignment
-- Property sync endpoint allows website data ingestion and auto-send cards/links
+Current React UI includes:
 
-### 2️⃣ AI 自動回覆（24/7）
-- AI reply engine with natural language intent routing
-- FAQ + listing lookup + property card response
-- AI schedule control (`/admin/ai/schedule`)
-- One-click pause (`/admin/ai/pause`)
-
-### 3️⃣ AI → 真人 Agent 接手
-- Trigger keywords (e.g. 想同真人傾 / 想約睇樓 / 即時報價)
-- AI handover stops automation and assigns active agent
-- Customer context, tags, and report generated automatically
-
-### 4️⃣ Tag / 客戶標籤
-- Auto tags from intent and budget extraction
-- Manual tag management via CRM endpoints
-
-### 5️⃣ Booking / 預約
-- AI suggests slots when booking intent is detected
-- Booking creation endpoint with customer + optional property + agent link
-- Confirmation message auto-sent
-
-### 6️⃣ Basic CRM
-- Customer profile, chat history, tags, intent/follow-up status
-- Lead listing and filters by tag/property/date/intent stage
-
-### 7️⃣ AI Model Training（持續優化）
-- Conversation data stored in DB
-- AI feedback endpoint (`correct` / `improve`) for future retraining loops
-
-### 8️⃣ AI Lead Report
-- Auto lead report generated on handover
-- Includes phone, intent stage, budget, tags, conversation summary
+- Chatroom list across all channels
+- Thread list for selected chatroom
+- Message timeline + manual outbound send
+- Per-chatroom AI toggle / pause / schedule
+- Inbound simulator for WhatsApp/WeChat/Facebook/IG
+- Create new chatroom UI
 
 ---
 
@@ -159,20 +110,18 @@ The React dashboard includes:
 python3 -m pytest -q
 ```
 
-Current suite validates:
-- AI auto reply
-- AI pause behavior
-- Handover + report generation
-- Auto tagging + lead filtering
-- Booking API flow
+Current suite includes omnichannel tests:
+- seeded chatrooms for all 4 channels
+- per-chatroom AI pause isolation
+- thread/message flow and manual outbound send
+- chatroom schedule update
 
 ---
 
-## Suggested Next Step (Phase 1.1 Production Hardening)
+## Next production steps
 
-- Add real WhatsApp Cloud API send/receive signature verification
-- Add auth/RBAC for Admin Dashboard APIs
-- Replace SQLite with managed PostgreSQL
-- Integrate real Google Calendar (OAuth + two-way sync)
-- Add WhatsApp Flows payload templates and callback handling
-- Add queue/worker for async notifications (Celery/RQ)
+- Channel signature verification (Meta/WeChat)
+- OAuth/token management per channel account
+- Role-based access control for agent/admin
+- Real-time updates (WebSocket) + unread counters
+- Queue workers for outbound retries and webhook fan-out

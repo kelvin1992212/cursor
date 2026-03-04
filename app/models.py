@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -217,3 +217,92 @@ class SystemSetting(Base):
         default=func.now(),
         onupdate=func.now(),
     )
+
+
+class OmniChatroom(Base):
+    __tablename__ = "omni_chatrooms"
+    __table_args__ = (UniqueConstraint("channel", "external_room_id", name="uq_omni_chatroom_channel_external"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    external_room_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    ai_schedule_start: Mapped[str] = mapped_column(String(5), default="00:00", nullable=False)
+    ai_schedule_end: Mapped[str] = mapped_column(String(5), default="00:00", nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Hong_Kong", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    threads: Mapped[list["OmniThread"]] = relationship(
+        back_populates="chatroom",
+        cascade="all, delete-orphan",
+    )
+
+
+class OmniContact(Base):
+    __tablename__ = "omni_contacts"
+    __table_args__ = (UniqueConstraint("channel", "external_user_id", name="uq_omni_contact_channel_external"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    external_user_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    threads: Mapped[list["OmniThread"]] = relationship(
+        back_populates="contact",
+        cascade="all, delete-orphan",
+    )
+
+
+class OmniThread(Base):
+    __tablename__ = "omni_threads"
+    __table_args__ = (UniqueConstraint("chatroom_id", "contact_id", name="uq_omni_thread_room_contact"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    chatroom_id: Mapped[int] = mapped_column(ForeignKey("omni_chatrooms.id", ondelete="CASCADE"), index=True)
+    contact_id: Mapped[int] = mapped_column(ForeignKey("omni_contacts.id", ondelete="CASCADE"), index=True)
+    assigned_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="open", nullable=False)
+    last_message_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    chatroom: Mapped[OmniChatroom] = relationship(back_populates="threads")
+    contact: Mapped[OmniContact] = relationship(back_populates="threads")
+    assigned_agent: Mapped[Agent | None] = relationship()
+    messages: Mapped[list["OmniMessage"]] = relationship(
+        back_populates="thread",
+        cascade="all, delete-orphan",
+    )
+
+
+class OmniMessage(Base):
+    __tablename__ = "omni_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    thread_id: Mapped[int] = mapped_column(ForeignKey("omni_threads.id", ondelete="CASCADE"), index=True)
+    direction: Mapped[str] = mapped_column(String(20), nullable=False)  # inbound / outbound
+    sender_type: Mapped[str] = mapped_column(String(20), nullable=False)  # customer / ai / agent / system
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)
+
+    thread: Mapped[OmniThread] = relationship(back_populates="messages")

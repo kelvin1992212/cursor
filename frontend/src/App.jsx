@@ -2,34 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, apiBaseUrl } from "./api";
 import "./App.css";
 
-const defaultSchedule = {
-  schedule_start: "20:00",
-  schedule_end: "09:00",
-  timezone: "Asia/Hong_Kong",
-};
-
-const defaultLeadFilters = {
-  tag: "",
-  property_code: "",
-  intent_stage: "",
-  from_date: "",
-  to_date: "",
-};
-
-const defaultBookingForm = {
-  phone: "",
-  scheduled_at: "",
-  property_code: "",
-  notes: "",
-  channel: "whatsapp",
-};
-
-const defaultSimulateForm = {
-  channel: "whatsapp",
-  phone: "",
-  name: "",
-  text: "",
-};
+const channelOptions = ["whatsapp", "wechat", "facebook", "instagram"];
 
 function formatDateTime(value) {
   if (!value) return "-";
@@ -40,246 +13,254 @@ function formatDateTime(value) {
 
 function App() {
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  const [aiStatus, setAiStatus] = useState(null);
-  const [scheduleForm, setScheduleForm] = useState(defaultSchedule);
+  const [chatroomFilter, setChatroomFilter] = useState("");
+  const [chatrooms, setChatrooms] = useState([]);
+  const [selectedChatroomId, setSelectedChatroomId] = useState(null);
 
-  const [agents, setAgents] = useState([]);
-  const [newAgent, setNewAgent] = useState({
+  const [threads, setThreads] = useState([]);
+  const [selectedThreadId, setSelectedThreadId] = useState(null);
+  const [messages, setMessages] = useState([]);
+
+  const [chatroomForm, setChatroomForm] = useState({
     name: "",
-    phone: "",
-    specialties: "",
-    is_active: true,
+    channel: "whatsapp",
+    external_room_id: "",
+  });
+  const [scheduleForm, setScheduleForm] = useState({
+    ai_schedule_start: "00:00",
+    ai_schedule_end: "00:00",
+    timezone: "Asia/Hong_Kong",
+  });
+  const [simulateForm, setSimulateForm] = useState({
+    channel: "whatsapp",
+    chatroom_external_id: "house88-whatsapp",
+    contact_id: "",
+    contact_name: "",
+    text: "",
+  });
+  const [outboundForm, setOutboundForm] = useState({
+    content: "",
+    sender_type: "agent",
   });
 
-  const [leadFilters, setLeadFilters] = useState(defaultLeadFilters);
-  const [leads, setLeads] = useState([]);
-  const [selectedPhone, setSelectedPhone] = useState("");
-  const [customerDetail, setCustomerDetail] = useState(null);
-  const [reports, setReports] = useState([]);
+  const selectedChatroom = useMemo(
+    () => chatrooms.find((room) => room.id === selectedChatroomId) || null,
+    [chatrooms, selectedChatroomId],
+  );
+  const selectedThread = useMemo(
+    () => threads.find((thread) => thread.id === selectedThreadId) || null,
+    [threads, selectedThreadId],
+  );
 
-  const [tagInput, setTagInput] = useState("");
-  const [feedbackForm, setFeedbackForm] = useState({
-    phone: "",
-    label: "correct",
-    note: "",
-  });
-
-  const [bookings, setBookings] = useState([]);
-  const [bookingForm, setBookingForm] = useState(defaultBookingForm);
-  const [simulateForm, setSimulateForm] = useState(defaultSimulateForm);
-
-  const currentLead = useMemo(() => leads.find((item) => item.phone === selectedPhone), [leads, selectedPhone]);
-
-  const refreshDashboard = useCallback(async () => {
-    setLoading(true);
+  const refreshMessages = useCallback(async (threadId) => {
+    if (!threadId) {
+      setMessages([]);
+      return;
+    }
     setError("");
     try {
-      const [status, agentRows, bookingRows, leadRows] = await Promise.all([
-        api.getAIStatus(),
-        api.listAgents(),
-        api.listBookings(),
-        api.listLeads(defaultLeadFilters),
-      ]);
-      setAiStatus(status);
-      setScheduleForm({
-        schedule_start: status.schedule_start,
-        schedule_end: status.schedule_end,
-        timezone: status.timezone,
-      });
-      setAgents(agentRows);
-      setBookings(bookingRows);
-      setLeads(leadRows);
-      if (leadRows.length > 0) {
-        setSelectedPhone((previous) => previous || leadRows[0].phone);
-      }
+      const rows = await api.listMessages(threadId);
+      setMessages(rows);
     } catch (fetchError) {
       setError(fetchError.message);
-    } finally {
+    }
+  }, []);
+
+  const refreshThreads = useCallback(
+    async (chatroomId, threadIdHint = null) => {
+      if (!chatroomId) {
+        setThreads([]);
+        setSelectedThreadId(null);
+        setMessages([]);
+        return null;
+      }
+      setError("");
+      try {
+        const rows = await api.listThreads(chatroomId);
+        setThreads(rows);
+        const nextThreadId =
+          (threadIdHint && rows.find((item) => item.id === threadIdHint)?.id) ||
+          (selectedThreadId && rows.find((item) => item.id === selectedThreadId)?.id) ||
+          rows[0]?.id ||
+          null;
+        setSelectedThreadId(nextThreadId);
+        await refreshMessages(nextThreadId);
+        return nextThreadId;
+      } catch (fetchError) {
+        setError(fetchError.message);
+        return null;
+      }
+    },
+    [refreshMessages, selectedThreadId],
+  );
+
+  const refreshChatrooms = useCallback(
+    async (roomIdHint = null, threadIdHint = null) => {
+      setError("");
+      try {
+        const rows = await api.listChatrooms(chatroomFilter ? { channel: chatroomFilter } : undefined);
+        setChatrooms(rows);
+        const nextRoomId =
+          (roomIdHint && rows.find((item) => item.id === roomIdHint)?.id) ||
+          rows[0]?.id ||
+          null;
+
+        setSelectedChatroomId(nextRoomId);
+        const room = rows.find((item) => item.id === nextRoomId) || null;
+        if (room) {
+          setScheduleForm({
+            ai_schedule_start: room.ai_schedule_start,
+            ai_schedule_end: room.ai_schedule_end,
+            timezone: room.timezone,
+          });
+          setSimulateForm((previous) => ({
+            ...previous,
+            channel: room.channel,
+            chatroom_external_id: room.external_room_id,
+          }));
+          await refreshThreads(room.id, threadIdHint);
+        } else {
+          setThreads([]);
+          setSelectedThreadId(null);
+          setMessages([]);
+        }
+      } catch (fetchError) {
+        setError(fetchError.message);
+      }
+    },
+    [chatroomFilter, refreshThreads],
+  );
+
+  const selectChatroom = useCallback(
+    async (room) => {
+      setSelectedChatroomId(room.id);
+      setScheduleForm({
+        ai_schedule_start: room.ai_schedule_start,
+        ai_schedule_end: room.ai_schedule_end,
+        timezone: room.timezone,
+      });
+      setSimulateForm((previous) => ({
+        ...previous,
+        channel: room.channel,
+        chatroom_external_id: room.external_room_id,
+      }));
+      await refreshThreads(room.id);
+    },
+    [refreshThreads],
+  );
+
+  const selectThread = useCallback(
+    async (threadId) => {
+      setSelectedThreadId(threadId);
+      await refreshMessages(threadId);
+    },
+    [refreshMessages],
+  );
+
+  useEffect(() => {
+    async function bootstrap() {
+      setLoading(true);
+      await refreshChatrooms();
       setLoading(false);
     }
-  }, []);
+    bootstrap();
+  }, [refreshChatrooms]);
 
-  const refreshCustomer = useCallback(async (phone) => {
-    try {
-      const [detail, leadReports] = await Promise.all([api.getCustomer(phone), api.listReports(phone)]);
-      setCustomerDetail(detail);
-      setReports(leadReports);
-    } catch (fetchError) {
-      setError(fetchError.message);
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshDashboard();
-  }, [refreshDashboard]);
-
-  useEffect(() => {
-    if (!selectedPhone) {
-      setCustomerDetail(null);
-      setReports([]);
-      return;
-    }
-    refreshCustomer(selectedPhone);
-    setFeedbackForm((previous) => ({ ...previous, phone: selectedPhone }));
-    setBookingForm((previous) => ({ ...previous, phone: selectedPhone }));
-    setSimulateForm((previous) => ({ ...previous, phone: selectedPhone }));
-  }, [refreshCustomer, selectedPhone]);
-
-  async function handleLeadSearch(event) {
+  async function handleCreateChatroom(event) {
     event.preventDefault();
     setError("");
+    setNotice("");
     try {
-      const rows = await api.listLeads(leadFilters);
-      setLeads(rows);
-      if (!rows.find((item) => item.phone === selectedPhone)) {
-        setSelectedPhone(rows[0]?.phone || "");
-      }
+      const created = await api.createChatroom({
+        name: chatroomForm.name,
+        channel: chatroomForm.channel,
+        external_room_id: chatroomForm.external_room_id,
+        ai_enabled: true,
+        ai_schedule_start: "00:00",
+        ai_schedule_end: "00:00",
+        timezone: "Asia/Hong_Kong",
+      });
+      setChatroomForm((previous) => ({ ...previous, name: "", external_room_id: "" }));
+      await refreshChatrooms(created.id);
+      setNotice("已新增 chatroom。");
     } catch (fetchError) {
       setError(fetchError.message);
     }
   }
 
-  async function handleAIPause() {
+  async function handleToggleChatroomAI() {
+    if (!selectedChatroom) return;
     setError("");
+    setNotice("");
     try {
-      const next = await api.pauseAI();
-      setAiStatus(next);
-      setMessage("AI 已暫停。");
+      await api.updateChatroomAIStatus(selectedChatroom.id, !selectedChatroom.ai_enabled);
+      await refreshChatrooms(selectedChatroom.id);
+      setNotice(`已${selectedChatroom.ai_enabled ? "停用" : "啟用"}此 chatroom 的 AI。`);
     } catch (fetchError) {
       setError(fetchError.message);
     }
   }
 
-  async function handleAIToggle() {
-    if (!aiStatus) return;
+  async function handlePauseChatroomAI() {
+    if (!selectedChatroom) return;
     setError("");
+    setNotice("");
     try {
-      const next = await api.updateAIStatus(!aiStatus.enabled);
-      setAiStatus(next);
-      setMessage(`AI 已${next.enabled ? "啟用" : "關閉"}。`);
+      await api.pauseChatroomAI(selectedChatroom.id);
+      await refreshChatrooms(selectedChatroom.id);
+      setNotice("已一鍵停用此 chatroom AI。");
     } catch (fetchError) {
       setError(fetchError.message);
     }
   }
 
-  async function handleScheduleUpdate(event) {
+  async function handleUpdateSchedule(event) {
     event.preventDefault();
+    if (!selectedChatroom) return;
     setError("");
+    setNotice("");
     try {
-      const next = await api.updateAISchedule(
-        scheduleForm.schedule_start,
-        scheduleForm.schedule_end,
+      await api.updateChatroomSchedule(
+        selectedChatroom.id,
+        scheduleForm.ai_schedule_start,
+        scheduleForm.ai_schedule_end,
         scheduleForm.timezone,
       );
-      setAiStatus(next);
-      setMessage("AI 工作時間已更新。");
+      await refreshChatrooms(selectedChatroom.id);
+      setNotice("AI 時段已更新。");
     } catch (fetchError) {
       setError(fetchError.message);
     }
   }
 
-  async function handleCreateAgent(event) {
+  async function handleSimulateInbound(event) {
     event.preventDefault();
     setError("");
-    try {
-      await api.createAgent(newAgent);
-      setNewAgent({ name: "", phone: "", specialties: "", is_active: true });
-      setAgents(await api.listAgents());
-      setMessage("Agent 已新增。");
-    } catch (fetchError) {
-      setError(fetchError.message);
-    }
-  }
-
-  async function handleAddTag(event) {
-    event.preventDefault();
-    if (!selectedPhone || !tagInput.trim()) return;
-    setError("");
-    const tags = tagInput
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
-
-    if (tags.length === 0) return;
-    try {
-      const updated = await api.addCustomerTags(selectedPhone, tags);
-      setCustomerDetail(updated);
-      setTagInput("");
-      setLeads(await api.listLeads(leadFilters));
-      setMessage("Tag 已更新。");
-    } catch (fetchError) {
-      setError(fetchError.message);
-    }
-  }
-
-  async function handleRemoveTag(tagName) {
-    if (!selectedPhone) return;
-    setError("");
-    try {
-      const updated = await api.removeCustomerTag(selectedPhone, tagName);
-      setCustomerDetail(updated);
-      setLeads(await api.listLeads(leadFilters));
-      setMessage(`已移除標籤: ${tagName}`);
-    } catch (fetchError) {
-      setError(fetchError.message);
-    }
-  }
-
-  async function handleCreateBooking(event) {
-    event.preventDefault();
-    setError("");
-    try {
-      const isoValue = new Date(bookingForm.scheduled_at).toISOString();
-      await api.createBooking({
-        ...bookingForm,
-        scheduled_at: isoValue,
-      });
-      setBookings(await api.listBookings());
-      setBookingForm((previous) => ({
-        ...defaultBookingForm,
-        phone: previous.phone,
-      }));
-      setMessage("預約已建立。");
-    } catch (fetchError) {
-      setError(fetchError.message);
-    }
-  }
-
-  async function handleSubmitFeedback(event) {
-    event.preventDefault();
-    if (!feedbackForm.phone) {
-      setError("請先選擇客戶。");
-      return;
-    }
-    setError("");
-    try {
-      await api.createFeedback(feedbackForm);
-      setFeedbackForm((previous) => ({ ...previous, note: "" }));
-      setMessage("Feedback 已提交。");
-    } catch (fetchError) {
-      setError(fetchError.message);
-    }
-  }
-
-  async function handleSimulateMessage(event) {
-    event.preventDefault();
-    setError("");
-    setMessage("");
+    setNotice("");
     try {
       const result = await api.simulateIncoming(simulateForm);
-      setMessage(
-        `已送出模擬訊息，系統模式：${result.mode}${result.assigned_agent ? `，分派 ${result.assigned_agent}` : ""}`,
-      );
-      const leadRows = await api.listLeads(leadFilters);
-      setLeads(leadRows);
-      if (simulateForm.phone) {
-        setSelectedPhone(simulateForm.phone);
-        await refreshCustomer(simulateForm.phone);
+      await refreshChatrooms(result.chatroom_id, result.thread_id);
+      setNotice(`模擬 inbound 成功（${result.channel} / AI reply: ${result.ai_replied ? "yes" : "no"}）。`);
+    } catch (fetchError) {
+      setError(fetchError.message);
+    }
+  }
+
+  async function handleSendMessage(event) {
+    event.preventDefault();
+    if (!selectedThreadId || !outboundForm.content.trim()) return;
+    setError("");
+    setNotice("");
+    try {
+      await api.sendMessage(selectedThreadId, outboundForm);
+      if (selectedChatroomId) {
+        await refreshThreads(selectedChatroomId, selectedThreadId);
       }
-      setBookings(await api.listBookings());
+      setOutboundForm((previous) => ({ ...previous, content: "" }));
+      setNotice("訊息已發送。");
     } catch (fetchError) {
       setError(fetchError.message);
     }
@@ -289,425 +270,271 @@ function App() {
     <main className="layout">
       <header className="page-header">
         <div>
-          <h1>House 88 AI Lead Dashboard</h1>
-          <p className="subtext">Frontend connected to: {apiBaseUrl}</p>
+          <h1>House 88 Omnichannel Chatroom</h1>
+          <p className="subtext">WhatsApp / WeChat / Facebook / Instagram unified inbox · API: {apiBaseUrl}</p>
         </div>
-        <button type="button" onClick={refreshDashboard}>
+        <button type="button" onClick={() => refreshChatrooms(selectedChatroomId)}>
           Refresh
         </button>
       </header>
 
       {loading && <p className="notice">載入中...</p>}
-      {message && <p className="notice success">{message}</p>}
+      {notice && <p className="notice success">{notice}</p>}
       {error && <p className="notice error">{error}</p>}
 
-      <section className="panel">
-        <h2>AI Control Center</h2>
-        <div className="row row-wrap">
-          <p>
-            <strong>Status:</strong> {aiStatus?.enabled ? "Enabled" : "Paused"}
-          </p>
-          <p>
-            <strong>Schedule:</strong> {aiStatus?.schedule_start || "-"} - {aiStatus?.schedule_end || "-"} (
-            {aiStatus?.timezone || "-"})
-          </p>
-          <button type="button" onClick={handleAIToggle} disabled={!aiStatus}>
-            {aiStatus?.enabled ? "Disable AI" : "Enable AI"}
-          </button>
-          <button type="button" onClick={handleAIPause}>
-            One-click Pause
-          </button>
-        </div>
-        <form onSubmit={handleScheduleUpdate} className="row row-wrap form-grid">
-          <label>
-            Start
-            <input
-              type="time"
-              value={scheduleForm.schedule_start}
-              onChange={(event) =>
-                setScheduleForm((previous) => ({ ...previous, schedule_start: event.target.value }))
-              }
-              required
-            />
-          </label>
-          <label>
-            End
-            <input
-              type="time"
-              value={scheduleForm.schedule_end}
-              onChange={(event) => setScheduleForm((previous) => ({ ...previous, schedule_end: event.target.value }))}
-              required
-            />
-          </label>
-          <label>
-            Timezone
-            <input
-              value={scheduleForm.timezone}
-              onChange={(event) => setScheduleForm((previous) => ({ ...previous, timezone: event.target.value }))}
-              required
-            />
-          </label>
-          <button type="submit">Update Schedule</button>
-        </form>
-      </section>
-
-      <section className="panel">
-        <h2>Webhook Simulator</h2>
-        <form onSubmit={handleSimulateMessage} className="row row-wrap form-grid">
-          <label>
-            Channel
-            <select
-              value={simulateForm.channel}
-              onChange={(event) => setSimulateForm((previous) => ({ ...previous, channel: event.target.value }))}
-            >
-              <option value="whatsapp">WhatsApp</option>
-              <option value="wechat">WeChat</option>
-            </select>
-          </label>
-          <label>
-            Phone
-            <input
-              value={simulateForm.phone}
-              onChange={(event) => setSimulateForm((previous) => ({ ...previous, phone: event.target.value }))}
-              placeholder="+85260000000"
-              required
-            />
-          </label>
-          <label>
-            Name
-            <input
-              value={simulateForm.name}
-              onChange={(event) => setSimulateForm((previous) => ({ ...previous, name: event.target.value }))}
-              placeholder="Client name"
-            />
-          </label>
-          <label className="wide-field">
-            Message
-            <input
-              value={simulateForm.text}
-              onChange={(event) => setSimulateForm((previous) => ({ ...previous, text: event.target.value }))}
-              placeholder="例如：我想同真人傾，想即時報價"
-              required
-            />
-          </label>
-          <button type="submit">Send Simulated Inbound</button>
-        </form>
-      </section>
-
-      <section className="two-column">
-        <div className="panel">
-          <h2>Leads</h2>
-          <form onSubmit={handleLeadSearch} className="row row-wrap compact-form">
-            <input
-              placeholder="Tag"
-              value={leadFilters.tag}
-              onChange={(event) => setLeadFilters((previous) => ({ ...previous, tag: event.target.value }))}
-            />
-            <input
-              placeholder="Property Code"
-              value={leadFilters.property_code}
-              onChange={(event) =>
-                setLeadFilters((previous) => ({ ...previous, property_code: event.target.value }))
-              }
-            />
-            <input
-              placeholder="Intent Stage"
-              value={leadFilters.intent_stage}
-              onChange={(event) =>
-                setLeadFilters((previous) => ({ ...previous, intent_stage: event.target.value }))
-              }
-            />
+      <section className="panel top-grid">
+        <div>
+          <h2>Create Chatroom</h2>
+          <form onSubmit={handleCreateChatroom} className="row row-wrap form-grid">
             <label>
-              From
+              Name
               <input
-                type="date"
-                value={leadFilters.from_date}
-                onChange={(event) =>
-                  setLeadFilters((previous) => ({ ...previous, from_date: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              To
-              <input
-                type="date"
-                value={leadFilters.to_date}
-                onChange={(event) => setLeadFilters((previous) => ({ ...previous, to_date: event.target.value }))}
-              />
-            </label>
-            <button type="submit">Search</button>
-          </form>
-
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Phone</th>
-                  <th>Name</th>
-                  <th>Intent</th>
-                  <th>Tags</th>
-                  <th>Last Message</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leads.length === 0 && (
-                  <tr>
-                    <td colSpan="5">No leads found.</td>
-                  </tr>
-                )}
-                {leads.map((lead) => (
-                  <tr
-                    key={lead.phone}
-                    className={lead.phone === selectedPhone ? "selected-row" : ""}
-                    onClick={() => setSelectedPhone(lead.phone)}
-                  >
-                    <td>{lead.phone}</td>
-                    <td>{lead.name || "-"}</td>
-                    <td>{lead.intent_stage}</td>
-                    <td>{lead.tags.join(", ") || "-"}</td>
-                    <td>{lead.last_message || "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="panel">
-          <h2>Customer Detail</h2>
-          {!selectedPhone && <p>Select a lead to view detail.</p>}
-          {selectedPhone && (
-            <>
-              <p>
-                <strong>Phone:</strong> {customerDetail?.phone || selectedPhone}
-              </p>
-              <p>
-                <strong>Name:</strong> {customerDetail?.name || currentLead?.name || "-"}
-              </p>
-              <p>
-                <strong>Intent:</strong> {customerDetail?.intent_stage || currentLead?.intent_stage || "-"}
-              </p>
-              <p>
-                <strong>Follow-up:</strong> {customerDetail?.follow_up_status || currentLead?.follow_up_status || "-"}
-              </p>
-              <p>
-                <strong>Budget:</strong>{" "}
-                {customerDetail?.budget_min || customerDetail?.budget_max
-                  ? `${customerDetail?.budget_min || "-"} ~ ${customerDetail?.budget_max || "-"}`
-                  : "-"}
-              </p>
-
-              <div className="tag-list">
-                {(customerDetail?.tags || []).map((tag) => (
-                  <span key={tag} className="tag-pill">
-                    {tag}
-                    <button type="button" onClick={() => handleRemoveTag(tag)}>
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </div>
-
-              <form onSubmit={handleAddTag} className="row">
-                <input
-                  value={tagInput}
-                  onChange={(event) => setTagInput(event.target.value)}
-                  placeholder="Add tag, or comma-separated tags"
-                />
-                <button type="submit">Add Tag</button>
-              </form>
-            </>
-          )}
-        </div>
-      </section>
-
-      <section className="two-column">
-        <div className="panel">
-          <h2>Booking Management</h2>
-          <form onSubmit={handleCreateBooking} className="row row-wrap form-grid">
-            <label>
-              Customer Phone
-              <input
+                value={chatroomForm.name}
+                onChange={(event) => setChatroomForm((previous) => ({ ...previous, name: event.target.value }))}
                 required
-                value={bookingForm.phone}
-                onChange={(event) => setBookingForm((previous) => ({ ...previous, phone: event.target.value }))}
-              />
-            </label>
-            <label>
-              Time
-              <input
-                required
-                type="datetime-local"
-                value={bookingForm.scheduled_at}
-                onChange={(event) =>
-                  setBookingForm((previous) => ({ ...previous, scheduled_at: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              Property Code
-              <input
-                value={bookingForm.property_code}
-                onChange={(event) =>
-                  setBookingForm((previous) => ({ ...previous, property_code: event.target.value }))
-                }
               />
             </label>
             <label>
               Channel
               <select
-                value={bookingForm.channel}
-                onChange={(event) => setBookingForm((previous) => ({ ...previous, channel: event.target.value }))}
+                value={chatroomForm.channel}
+                onChange={(event) => setChatroomForm((previous) => ({ ...previous, channel: event.target.value }))}
               >
-                <option value="whatsapp">WhatsApp</option>
-                <option value="wechat">WeChat</option>
+                {channelOptions.map((channel) => (
+                  <option key={channel} value={channel}>
+                    {channel}
+                  </option>
+                ))}
               </select>
             </label>
-            <label className="wide-field">
-              Notes
+            <label>
+              External Room ID
               <input
-                value={bookingForm.notes}
-                onChange={(event) => setBookingForm((previous) => ({ ...previous, notes: event.target.value }))}
+                value={chatroomForm.external_room_id}
+                onChange={(event) =>
+                  setChatroomForm((previous) => ({ ...previous, external_room_id: event.target.value }))
+                }
+                required
               />
             </label>
-            <button type="submit">Create Booking</button>
+            <button type="submit">Create</button>
           </form>
-
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Phone</th>
-                  <th>Status</th>
-                  <th>Agent</th>
-                  <th>Property</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bookings.length === 0 && (
-                  <tr>
-                    <td colSpan="5">No bookings yet.</td>
-                  </tr>
-                )}
-                {bookings.map((booking) => (
-                  <tr key={booking.id}>
-                    <td>{formatDateTime(booking.scheduled_at)}</td>
-                    <td>{booking.customer_phone}</td>
-                    <td>{booking.status}</td>
-                    <td>{booking.agent_name || "-"}</td>
-                    <td>{booking.property_code || "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
 
-        <div className="panel">
-          <h2>Lead Reports & AI Feedback</h2>
-          {!selectedPhone && <p>Select a lead to view reports and submit feedback.</p>}
-          {selectedPhone && (
-            <>
-              <p>
-                <strong>Reports for:</strong> {selectedPhone}
-              </p>
-              <ul className="report-list">
-                {reports.length === 0 && <li>No reports yet.</li>}
-                {reports.map((report) => (
-                  <li key={report.id}>
-                    <p>
-                      <strong>#{report.id}</strong> at {formatDateTime(report.created_at)}{" "}
-                      {report.agent_name ? `(Agent: ${report.agent_name})` : ""}
-                    </p>
-                    <pre>{JSON.stringify(report.summary_json, null, 2)}</pre>
-                  </li>
+        <div>
+          <h2>Simulate Inbound</h2>
+          <form onSubmit={handleSimulateInbound} className="row row-wrap form-grid">
+            <label>
+              Channel
+              <select
+                value={simulateForm.channel}
+                onChange={(event) => setSimulateForm((previous) => ({ ...previous, channel: event.target.value }))}
+              >
+                {channelOptions.map((channel) => (
+                  <option key={channel} value={channel}>
+                    {channel}
+                  </option>
                 ))}
-              </ul>
-              <form onSubmit={handleSubmitFeedback} className="row row-wrap">
-                <input value={feedbackForm.phone} readOnly />
-                <select
-                  value={feedbackForm.label}
-                  onChange={(event) => setFeedbackForm((previous) => ({ ...previous, label: event.target.value }))}
-                >
-                  <option value="correct">correct</option>
-                  <option value="improve">improve</option>
-                </select>
-                <input
-                  value={feedbackForm.note}
-                  onChange={(event) => setFeedbackForm((previous) => ({ ...previous, note: event.target.value }))}
-                  placeholder="Feedback note"
-                />
-                <button type="submit">Submit Feedback</button>
-              </form>
-            </>
-          )}
+              </select>
+            </label>
+            <label>
+              Chatroom External ID
+              <input
+                value={simulateForm.chatroom_external_id}
+                onChange={(event) =>
+                  setSimulateForm((previous) => ({ ...previous, chatroom_external_id: event.target.value }))
+                }
+                required
+              />
+            </label>
+            <label>
+              Contact ID
+              <input
+                value={simulateForm.contact_id}
+                onChange={(event) => setSimulateForm((previous) => ({ ...previous, contact_id: event.target.value }))}
+                required
+              />
+            </label>
+            <label>
+              Contact Name
+              <input
+                value={simulateForm.contact_name}
+                onChange={(event) =>
+                  setSimulateForm((previous) => ({ ...previous, contact_name: event.target.value }))
+                }
+              />
+            </label>
+            <label className="wide-field">
+              Message
+              <input
+                value={simulateForm.text}
+                onChange={(event) => setSimulateForm((previous) => ({ ...previous, text: event.target.value }))}
+                required
+              />
+            </label>
+            <button type="submit">Send Inbound</button>
+          </form>
         </div>
       </section>
 
-      <section className="panel">
-        <h2>Agents</h2>
-        <form onSubmit={handleCreateAgent} className="row row-wrap form-grid">
-          <label>
-            Name
-            <input
-              required
-              value={newAgent.name}
-              onChange={(event) => setNewAgent((previous) => ({ ...previous, name: event.target.value }))}
-            />
-          </label>
-          <label>
-            Phone
-            <input
-              required
-              value={newAgent.phone}
-              onChange={(event) => setNewAgent((previous) => ({ ...previous, phone: event.target.value }))}
-            />
-          </label>
-          <label>
-            Specialties
-            <input
-              value={newAgent.specialties}
-              onChange={(event) => setNewAgent((previous) => ({ ...previous, specialties: event.target.value }))}
-            />
-          </label>
-          <label>
-            Active
-            <select
-              value={newAgent.is_active ? "true" : "false"}
-              onChange={(event) =>
-                setNewAgent((previous) => ({ ...previous, is_active: event.target.value === "true" }))
-              }
-            >
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </select>
-          </label>
-          <button type="submit">Add Agent</button>
-        </form>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Name</th>
-                <th>Phone</th>
-                <th>Specialties</th>
-                <th>Active</th>
-              </tr>
-            </thead>
-            <tbody>
-              {agents.map((agent) => (
-                <tr key={agent.id}>
-                  <td>{agent.id}</td>
-                  <td>{agent.name}</td>
-                  <td>{agent.phone}</td>
-                  <td>{agent.specialties || "-"}</td>
-                  <td>{String(agent.is_active)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <section className="inbox-grid">
+        <div className="panel">
+          <div className="row row-wrap">
+            <h2>Chatrooms</h2>
+            <label>
+              Channel Filter
+              <select
+                value={chatroomFilter}
+                onChange={(event) => setChatroomFilter(event.target.value)}
+              >
+                <option value="">all</option>
+                {channelOptions.map((channel) => (
+                  <option key={channel} value={channel}>
+                    {channel}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" onClick={() => refreshChatrooms(selectedChatroomId)}>
+              Apply
+            </button>
+          </div>
+          <ul className="list">
+            {chatrooms.length === 0 && <li className="list-item">No chatrooms.</li>}
+            {chatrooms.map((room) => (
+              <li
+                key={room.id}
+                className={`list-item clickable ${room.id === selectedChatroomId ? "active-item" : ""}`}
+                onClick={() => {
+                  selectChatroom(room);
+                }}
+              >
+                <p className="item-title">{room.name}</p>
+                <p className="item-sub">
+                  {room.channel} · {room.external_room_id}
+                </p>
+                <p className="item-sub">
+                  AI: {room.ai_enabled ? "on" : "off"} · Threads: {room.thread_count}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="panel">
+          <h2>Threads {selectedChatroom ? `· ${selectedChatroom.name}` : ""}</h2>
+          {!selectedChatroom && <p>Select a chatroom first.</p>}
+          {selectedChatroom && (
+            <>
+              <div className="ai-toolbar">
+                <p>
+                  <strong>AI:</strong> {selectedChatroom.ai_enabled ? "Enabled" : "Paused"}
+                </p>
+                <p>
+                  <strong>Schedule:</strong> {selectedChatroom.ai_schedule_start} - {selectedChatroom.ai_schedule_end} (
+                  {selectedChatroom.timezone})
+                </p>
+                <button type="button" onClick={handleToggleChatroomAI}>
+                  {selectedChatroom.ai_enabled ? "Disable AI" : "Enable AI"}
+                </button>
+                <button type="button" onClick={handlePauseChatroomAI}>
+                  One-click Pause
+                </button>
+              </div>
+              <form onSubmit={handleUpdateSchedule} className="row row-wrap compact-form">
+                <label>
+                  Start
+                  <input
+                    type="time"
+                    value={scheduleForm.ai_schedule_start}
+                    onChange={(event) =>
+                      setScheduleForm((previous) => ({ ...previous, ai_schedule_start: event.target.value }))
+                    }
+                    required
+                  />
+                </label>
+                <label>
+                  End
+                  <input
+                    type="time"
+                    value={scheduleForm.ai_schedule_end}
+                    onChange={(event) =>
+                      setScheduleForm((previous) => ({ ...previous, ai_schedule_end: event.target.value }))
+                    }
+                    required
+                  />
+                </label>
+                <label>
+                  Timezone
+                  <input
+                    value={scheduleForm.timezone}
+                    onChange={(event) => setScheduleForm((previous) => ({ ...previous, timezone: event.target.value }))}
+                    required
+                  />
+                </label>
+                <button type="submit">Update</button>
+              </form>
+              <ul className="list">
+                {threads.length === 0 && <li className="list-item">No threads yet.</li>}
+                {threads.map((thread) => (
+                  <li
+                    key={thread.id}
+                    className={`list-item clickable ${thread.id === selectedThreadId ? "active-item" : ""}`}
+                    onClick={() => {
+                      selectThread(thread.id);
+                    }}
+                  >
+                    <p className="item-title">{thread.contact_display_name || thread.contact_external_user_id}</p>
+                    <p className="item-sub">
+                      {thread.contact_channel} · {thread.status}
+                    </p>
+                    <p className="item-sub">{thread.last_message_preview || "-"}</p>
+                    <p className="item-sub">{formatDateTime(thread.last_message_at)}</p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+
+        <div className="panel">
+          <h2>Messages</h2>
+          {!selectedThread && <p>Select a thread to view messages.</p>}
+          {selectedThread && (
+            <>
+              <p className="item-sub">
+                Thread #{selectedThread.id} · {selectedThread.contact_display_name || selectedThread.contact_external_user_id}
+              </p>
+              <div className="message-box">
+                {messages.length === 0 && <p className="item-sub">No messages yet.</p>}
+                {messages.map((msg) => (
+                  <div key={msg.id} className={`message-row ${msg.direction === "outbound" ? "outbound" : "inbound"}`}>
+                    <p className="message-meta">
+                      {msg.sender_type} · {formatDateTime(msg.created_at)}
+                    </p>
+                    <p className="message-content">{msg.content}</p>
+                  </div>
+                ))}
+              </div>
+              <form onSubmit={handleSendMessage} className="row row-wrap">
+                <select
+                  value={outboundForm.sender_type}
+                  onChange={(event) => setOutboundForm((previous) => ({ ...previous, sender_type: event.target.value }))}
+                >
+                  <option value="agent">agent</option>
+                  <option value="system">system</option>
+                </select>
+                <input
+                  className="compose-input"
+                  placeholder="Type outbound message"
+                  value={outboundForm.content}
+                  onChange={(event) => setOutboundForm((previous) => ({ ...previous, content: event.target.value }))}
+                  required
+                />
+                <button type="submit">Send</button>
+              </form>
+            </>
+          )}
         </div>
       </section>
     </main>
