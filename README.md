@@ -95,12 +95,11 @@ Simulation payload:
 
 Current React UI includes:
 
-- Chatroom list across all channels
-- Thread list for selected chatroom
-- Message timeline + manual outbound send
-- Per-chatroom AI toggle / pause / schedule
-- Inbound simulator for WhatsApp/WeChat/Facebook/IG
-- Create new chatroom UI
+- Multi-page React Router UI (not single-page panel)
+- `/chatrooms`: list, filter, create chatrooms
+- `/inbox/:chatroomId`: threads + message timeline + manual outbound send
+- `/ai-settings`: per-chatroom AI toggle / pause / schedule
+- `/simulator`: inbound simulator for WhatsApp/WeChat/Facebook/IG
 
 ---
 
